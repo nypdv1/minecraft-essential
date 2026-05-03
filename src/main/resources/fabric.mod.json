@@ -1,6 +1,6 @@
 {
     "schemaVersion": 1,
-    "id": "prometheus-essential",
+    "id": "prometheus_essential",
     "version": "${project.version}",
     "environment": "client",
     "name": "Prometheus",
