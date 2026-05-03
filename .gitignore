@@ -5,4 +5,3 @@ target/
 .idea/
 
 **/.DS_Store
-./apache-maven-3.9.14

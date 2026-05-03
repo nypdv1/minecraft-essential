@@ -27,7 +27,7 @@ public abstract class MixinCosmeticsManager {
     private ConnectionManager connectionManager;
 
     @Unique
-    private boolean requested = false;
+    private boolean requested;
 
     @Unique
     private static final Set<String> EXTRA_COSMETICS = new HashSet<>(Arrays.asList(
