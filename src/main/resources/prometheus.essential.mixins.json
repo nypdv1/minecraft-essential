@@ -1,12 +1,11 @@
 {
-    "required": true,
+    "required": false,
     "package": "studio.dreamys.prometheus.mixin",
     "compatibilityLevel": "JAVA_8",
     "mixins": [
         "gg.essential.cosmetics.MixinExtensionsKt",
         "gg.essential.cosmetics.MixinIngameEquippedOutfitsManager",
         "gg.essential.cosmetics.MixinIngameEquippedOutfitsUpdateDispatcher",
-        "gg.essential.network.connectionmanager.cosmetics.MixinOutfitManager",
         "gg.essential.network.connectionmanager.cosmetics.MixinCosmeticsManager",
         "gg.essential.network.connectionmanager.handler.cosmetics.MixinServerCosmeticsPopulatePacketHandler"
     ],
