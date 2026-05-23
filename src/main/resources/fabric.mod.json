@@ -19,6 +19,9 @@
     "entrypoints": {
         "preLaunch": [
             "studio.dreamys.prometheus.Prometheus"
+        ],
+        "client": [
+            "studio.dreamys.prometheus.PrometheusClientNetworkingInit"
         ]
     },
     "depends": {
@@ -41,3 +44,4 @@
         }
     }
 }
+
