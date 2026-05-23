@@ -8,21 +8,33 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import studio.dreamys.prometheus.peer.PrometheusPresence;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Mixin(value = IngameEquippedOutfitsManager.class, remap = false)
 public class MixinIngameEquippedOutfitsManager {
 
     @Inject(method = "applyUpdates(Ljava/util/List;)V", at = @At("HEAD"), remap = false)
-    private void prometheus$markPeersFromBatch(List<Map.Entry<UUID, List<IngameEquippedOutfitsManager.Update>>> list, CallbackInfo ci) {
-        for (Map.Entry<UUID, List<IngameEquippedOutfitsManager.Update>> entry : list) {
-            PrometheusPresence.markPeer(entry.getKey());
+    private void prometheus$markPeersFromBatch(List<?> list, CallbackInfo ci) {
+        for (Object entry : list) {
+            UUID uuid = extractUuid(entry);
+            if (uuid != null) PrometheusPresence.markPeer(uuid);
         }
     }
 
     @Inject(method = "applyUpdates(Ljava/util/UUID;Ljava/util/List;)V", at = @At("HEAD"), remap = false)
     private void prometheus$markPeer(UUID uuid, List<IngameEquippedOutfitsManager.Update> updates, CallbackInfo ci) {
         PrometheusPresence.markPeer(uuid);
+    }
+
+    private static UUID extractUuid(Object obj) {
+        try {
+            return (UUID) obj.getClass().getMethod("component1").invoke(obj);
+        } catch (Exception e) {
+            try {
+                return (UUID) obj.getClass().getMethod("getFirst").invoke(obj);
+            } catch (Exception e2) {
+                return null;
+            }
+        }
     }
 }
