@@ -18,41 +18,60 @@ public final class PrometheusPeerNetworking {
     private PrometheusPeerNetworking() {}
 
     public static void initClient() {
-        if (initialized) return;
+        if (initialized) {
+            LOGGER.debug("initClient already ran, skipping");
+            return;
+        }
         initialized = true;
 
         LOGGER.info("Peer sync via relay: {}", RELAY_URL);
+        LOGGER.info("initClient: starting...");
 
         String server = "singleplayer";
         UUID uuid;
         String username;
         try {
-            ClassLoader cl = PrometheusPeerNetworking.class.getClassLoader();
-            Object mc = Class.forName("net.minecraft.client.Minecraft", false, cl)
-                .getMethod("getMinecraft").invoke(null);
+            // Use context class loader which is the Fabric/Knot classloader that can find Minecraft classes
+            ClassLoader cl = Thread.currentThread().getContextClassLoader();
+            // Fabric intermediary names: class_310 = Minecraft, class_2535 = NetworkManager, class_634 = ClientPlayNetworkHandler
+            Class<?> minecraftClass = Class.forName("net.minecraft.class_310", false, cl);
+            Object mc = minecraftClass.getMethod("method_1551").invoke(null); // getMinecraft
             Object serverData = mc.getClass().getMethod("getCurrentServerData").invoke(mc);
-            if (serverData != null) server = (String) serverData.getClass().getField("serverIP").get(serverData);
+            if (serverData != null) {
+                String ip = (String) serverData.getClass().getField("field_26365").get(serverData); // serverIP
+                String name = (String) serverData.getClass().getField("field_26364").get(serverData); // name
+                LOGGER.info("ServerData: ip={}, name={}", ip, name);
+                // For singleplayer and LAN, use "singleplayer" as group so they sync together
+                // For real servers, use the IP
+                if ("singleplayer".equals(ip) || ip == null || ip.isEmpty()) {
+                    server = "singleplayer";
+                } else {
+                    server = ip;
+                }
+            }
             Object s = mc.getClass().getMethod("getSession").invoke(mc);
             Object profile = s.getClass().getMethod("getProfile").invoke(s);
             uuid = (UUID) profile.getClass().getMethod("getId").invoke(profile);
             username = (String) s.getClass().getMethod("getUsername").invoke(s);
         } catch (Throwable t) {
-            LOGGER.warn("Failed to resolve player identity via Minecraft", t);
+            LOGGER.error("Failed to resolve player identity via Minecraft", t);
             try {
                 Object session = gg.essential.util.USession.Companion.activeNow();
                 uuid = (UUID) session.getClass().getMethod("getUuid").invoke(session);
                 username = (String) session.getClass().getMethod("getUsername").invoke(session);
                 LOGGER.info("Resolved identity via USession: {} {}", uuid, username);
             } catch (Throwable t2) {
-                LOGGER.warn("Failed to resolve player identity via USession", t2);
+                LOGGER.error("Failed to resolve player identity via USession", t2);
                 return;
             }
         }
 
         String finalUuid = uuid.toString();
         String finalUsername = username;
+        LOGGER.info("initClient: calling PrometheusRelayClient.connect...");
         PrometheusRelayClient.connect(RELAY_URL, finalUuid, finalUsername, server,
             (srv, bytes) -> receiveRelayOutfit(bytes));
+        LOGGER.info("initClient: connect() returned");
     }
 
     /** Called from mixin when outfit updates are applied locally (own or peer). */
@@ -122,10 +141,12 @@ public final class PrometheusPeerNetworking {
     private static void applyUpdatesDirect(java.util.List<?> updates) {
         applyingFromRelay.set(true);
         try {
-            ClassLoader cl = PrometheusPeerNetworking.class.getClassLoader();
-            Object mc = Class.forName("net.minecraft.client.Minecraft", false, cl)
-                .getMethod("getMinecraft").invoke(null);
-            Object connection = mc.getClass().getMethod("getConnection").invoke(mc);
+            // Use context class loader which is the Fabric/Knot classloader that can find Minecraft classes
+            ClassLoader cl = Thread.currentThread().getContextClassLoader();
+            // Fabric intermediary names
+            Class<?> minecraftClass = Class.forName("net.minecraft.class_310", false, cl);
+            Object mc = minecraftClass.getMethod("method_1551").invoke(null); // getMinecraft
+            Object connection = mc.getClass().getMethod("method_1562").invoke(mc); // getConnection
             if (connection == null) {
                 LOGGER.warn("Relay: apply failed - no connection");
                 return;
@@ -145,6 +166,80 @@ public final class PrometheusPeerNetworking {
             LOGGER.error("Relay: apply failed", t);
         } finally {
             applyingFromRelay.set(false);
+        }
+    }
+
+    /** Broadcast our current outfit to all peers when a new player joins. */
+    public static void broadcastCurrentOutfit() {
+        try {
+            // Get own UUID
+            Object session = gg.essential.util.USession.Companion.activeNow();
+            UUID ownUuid = (UUID) session.getClass().getMethod("getUuid").invoke(session);
+            
+            // Get the manager and our current equipped cosmetics
+            ClassLoader cl = Thread.currentThread().getContextClassLoader();
+            Class<?> minecraftClass = Class.forName("net.minecraft.class_310", false, cl);
+            Object mc = minecraftClass.getMethod("method_1551").invoke(null);
+            Object connection = mc.getClass().getMethod("method_1562").invoke(mc);
+            if (connection == null) return;
+
+            Object manager = connection.getClass()
+                .getMethod("getEssential$ingameEquippedOutfitsManager").invoke(connection);
+            if (manager == null) return;
+
+            // Get current cosmetics - getEquippedCosmetics(UUID) returns Outfit
+            Object outfit = manager.getClass()
+                .getMethod("getEquippedCosmetics", java.util.UUID.class)
+                .invoke(manager, ownUuid);
+            if (outfit == null) {
+                LOGGER.debug("Relay: no equipped cosmetics to broadcast");
+                return;
+            }
+
+            // Build updates from the outfit
+            java.util.List<Object> updates = new java.util.ArrayList<>();
+            
+            // Get cosmetics map: Map<CosmeticSlot, EquippedCosmetic>
+            Object cosmetics = outfit.getClass().getMethod("getCosmetics").invoke(outfit);
+            if (cosmetics != null) {
+                for (Object e : (java.util.Set<?>) ((java.util.Map<?, ?>) cosmetics).entrySet()) {
+                    Object slot = e.getClass().getMethod("getKey").invoke(e);
+                    Object equippedCosmetic = e.getClass().getMethod("getValue").invoke(e);
+                    // EquippedCosmetic has component1() which returns EquippedCosmeticId
+                    Object cosmeticId = equippedCosmetic.getClass().getMethod("component1").invoke(equippedCosmetic);
+                    // Create Update.Cosmetic via reflection
+                    Object updateCosmetic = gg.essential.cosmetics.IngameEquippedOutfitsManager.Update.Cosmetic.class
+                        .getConstructor(Object.class, Object.class).newInstance(slot, cosmeticId);
+                    updates.add(updateCosmetic);
+                }
+            }
+            
+            // Get skin
+            Object skin = outfit.getClass().getMethod("getSkin").invoke(outfit);
+            if (skin != null) {
+                Object updateSkin = gg.essential.cosmetics.IngameEquippedOutfitsManager.Update.Skin.class
+                    .getConstructor(Object.class).newInstance(skin);
+                updates.add(updateSkin);
+            }
+
+            if (!updates.isEmpty()) {
+                // Create batch: List<Pair<UUID, List<Update>>>
+                Object pair = new kotlin.Pair<>(ownUuid, updates);
+                @SuppressWarnings("rawtypes")
+                java.util.List batch = java.util.Collections.singletonList(pair);
+                
+                io.netty.buffer.ByteBuf buf = Unpooled.buffer();
+                OutfitUpdatesPayload.encode(buf, new OutfitUpdatesPayload(batch));
+                byte[] bytes = new byte[buf.readableBytes()];
+                buf.readBytes(bytes);
+                buf.release();
+                PrometheusRelayClient.send(bytes);
+                LOGGER.info("Relay: broadcast current outfit ({} cosmetics, skin={})", 
+                    updates.stream().filter(u -> u.getClass().getSimpleName().contains("Cosmetic")).count(),
+                    skin != null);
+            }
+        } catch (Throwable t) {
+            LOGGER.warn("Relay: broadcastCurrentOutfit failed: {}", t.getMessage());
         }
     }
 
