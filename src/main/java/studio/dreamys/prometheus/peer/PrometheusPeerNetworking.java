@@ -1,10 +1,7 @@
 package studio.dreamys.prometheus.peer;
 
-import gg.essential.cosmetics.IngameEquippedOutfitsUpdateDispatcher;
 import gg.essential.cosmetics.OutfitUpdatesPayload;
 import io.netty.buffer.Unpooled;
-import net.fabricmc.api.EnvType;
-import net.fabricmc.loader.api.FabricLoader;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -14,7 +11,9 @@ import java.util.stream.Collectors;
 
 public final class PrometheusPeerNetworking {
     private static final Logger LOGGER = LogManager.getLogger("Prometheus");
+    private static final String RELAY_URL = "wss://acsx-fsa-production.up.railway.app";
     private static boolean initialized;
+    private static final ThreadLocal<Boolean> applyingFromRelay = ThreadLocal.withInitial(() -> false);
 
     private PrometheusPeerNetworking() {}
 
@@ -22,15 +21,15 @@ public final class PrometheusPeerNetworking {
         if (initialized) return;
         initialized = true;
 
-        String url = System.getProperty("prometheus.relay.url");
-        if (url == null || url.isEmpty()) url = "wss://prometheus-relay.up.railway.app";
-        LOGGER.info("Peer sync via relay: {}", url);
+        LOGGER.info("Peer sync via relay: {}", RELAY_URL);
 
         String server = "singleplayer";
         UUID uuid;
         String username;
         try {
-            Object mc = Class.forName("net.minecraft.client.Minecraft").getMethod("getMinecraft").invoke(null);
+            ClassLoader cl = PrometheusPeerNetworking.class.getClassLoader();
+            Object mc = Class.forName("net.minecraft.client.Minecraft", false, cl)
+                .getMethod("getMinecraft").invoke(null);
             Object serverData = mc.getClass().getMethod("getCurrentServerData").invoke(mc);
             if (serverData != null) server = (String) serverData.getClass().getField("serverIP").get(serverData);
             Object s = mc.getClass().getMethod("getSession").invoke(mc);
@@ -43,6 +42,7 @@ public final class PrometheusPeerNetworking {
                 Object session = gg.essential.util.USession.Companion.activeNow();
                 uuid = (UUID) session.getClass().getMethod("getUuid").invoke(session);
                 username = (String) session.getClass().getMethod("getUsername").invoke(session);
+                LOGGER.info("Resolved identity via USession: {} {}", uuid, username);
             } catch (Throwable t2) {
                 LOGGER.warn("Failed to resolve player identity via USession", t2);
                 return;
@@ -51,14 +51,15 @@ public final class PrometheusPeerNetworking {
 
         String finalUuid = uuid.toString();
         String finalUsername = username;
-        PrometheusRelayClient.connect(finalUuid, finalUsername, server,
+        PrometheusRelayClient.connect(RELAY_URL, finalUuid, finalUsername, server,
             (srv, bytes) -> receiveRelayOutfit(bytes));
     }
 
-    /** Called from mixin when outfit updates are dispatched. */
+    /** Called from mixin when outfit updates are applied locally (own or peer). */
     @SuppressWarnings("unchecked")
     public static void sendOwnOutfitUpdates(java.util.List<?> updates) {
         if (updates == null || updates.isEmpty()) return;
+        if (applyingFromRelay.get()) return;
 
         UUID ownUuid;
         try {
@@ -71,7 +72,10 @@ public final class PrometheusPeerNetworking {
         java.util.List<Object> ownOnly = updates.stream()
             .filter(e -> ownUuid.equals(extractUuid(e)))
             .collect(Collectors.toList());
-        if (ownOnly.isEmpty()) return;
+        if (ownOnly.isEmpty()) {
+            LOGGER.debug("Relay: no own updates in batch of {}", updates.size());
+            return;
+        }
 
         try {
             io.netty.buffer.ByteBuf buf = Unpooled.buffer();
@@ -82,6 +86,7 @@ public final class PrometheusPeerNetworking {
             buf.readBytes(bytes);
             buf.release();
             PrometheusRelayClient.send(bytes);
+            LOGGER.info("Relay: sent {} own update(s)", ownOnly.size());
         } catch (Throwable t) {
             LOGGER.debug("Failed to send outfit via relay", t);
         }
@@ -97,12 +102,35 @@ public final class PrometheusPeerNetworking {
 
             for (Object entry : payload.getUpdates()) {
                 UUID peerUuid = extractUuid(entry);
-                if (peerUuid != null) PrometheusPresence.markPeer(peerUuid);
+                if (peerUuid != null) {
+                    LOGGER.info("Relay: received update for {}", peerUuid);
+                    PrometheusPresence.markPeer(peerUuid);
+                }
             }
 
-            IngameEquippedOutfitsUpdateDispatcher.Companion.sendUpdates(payload.getUpdates());
+            applyUpdatesDirect(payload.getUpdates());
         } catch (Throwable t) {
             LOGGER.debug("Failed to apply relay outfit", t);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void applyUpdatesDirect(java.util.List<?> updates) {
+        applyingFromRelay.set(true);
+        try {
+            ClassLoader cl = PrometheusPeerNetworking.class.getClassLoader();
+            Object mc = Class.forName("net.minecraft.client.Minecraft", false, cl)
+                .getMethod("getMinecraft").invoke(null);
+            Object connection = mc.getClass().getMethod("getConnection").invoke(mc);
+            if (connection == null) return;
+
+            Object manager = connection.getClass()
+                .getMethod("getEssential$ingameEquippedOutfitsManager").invoke(connection);
+            manager.getClass().getMethod("applyUpdates", java.util.List.class).invoke(manager, updates);
+        } catch (Throwable t) {
+            LOGGER.debug("Failed to inject relay update locally", t);
+        } finally {
+            applyingFromRelay.set(false);
         }
     }
 

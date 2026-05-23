@@ -16,17 +16,19 @@ public class PrometheusRelayClient {
     private static final long RECONNECT_DELAY_MS = 5000;
 
     private static WebSocket ws;
+    private static String relayUrl;
     private static String currentUuid;
     private static String currentUsername;
     private static String currentServer;
     private static BiConsumer<String, byte[]> onOutfit;
 
-    private static final String DEFAULT_URL = "wss://acsx-fsa-production.up.railway.app";
+    public static void connect(String url, String uuid, String username, String server, BiConsumer<String, byte[]> callback) {
+        if (url == null || url.isEmpty()) {
+            LOGGER.warn("No relay URL configured");
+            return;
+        }
 
-    public static void connect(String uuid, String username, String server, BiConsumer<String, byte[]> callback) {
-        String url = System.getProperty("prometheus.relay.url", DEFAULT_URL);
-        if (url == null || url.isEmpty()) return;
-
+        relayUrl = url;
         currentUuid = uuid;
         currentUsername = username;
         currentServer = server;
@@ -46,6 +48,8 @@ public class PrometheusRelayClient {
         WebSocket s = ws;
         if (s != null) {
             s.sendBinary(ByteBuffer.wrap(data), true);
+        } else {
+            LOGGER.warn("Cannot send: WebSocket not connected yet");
         }
     }
 
@@ -60,7 +64,7 @@ public class PrometheusRelayClient {
     private static void scheduleReconnect() {
         Thread timer = new Thread(() -> {
             try { Thread.sleep(RECONNECT_DELAY_MS); } catch (InterruptedException e) { return; }
-            connect(currentUuid, currentUsername, currentServer, onOutfit);
+            connect(relayUrl, currentUuid, currentUsername, currentServer, onOutfit);
         });
         timer.setDaemon(true);
         timer.start();

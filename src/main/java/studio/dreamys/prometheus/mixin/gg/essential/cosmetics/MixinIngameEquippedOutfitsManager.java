@@ -5,6 +5,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import studio.dreamys.prometheus.peer.PrometheusPeerNetworking;
 import studio.dreamys.prometheus.peer.PrometheusPresence;
 
 import java.util.List;
@@ -14,7 +15,8 @@ import java.util.UUID;
 public class MixinIngameEquippedOutfitsManager {
 
     @Inject(method = "applyUpdates(Ljava/util/List;)V", at = @At("HEAD"), remap = false)
-    private void prometheus$markPeersFromBatch(List<?> list, CallbackInfo ci) {
+    private void prometheus$onApplyUpdates(List<?> list, CallbackInfo ci) {
+        PrometheusPeerNetworking.sendOwnOutfitUpdates(list);
         for (Object entry : list) {
             UUID uuid = extractUuid(entry);
             if (uuid != null) PrometheusPresence.markPeer(uuid);
