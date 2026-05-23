@@ -1,6 +1,7 @@
 package studio.dreamys.prometheus.mixin.gg.essential.cosmetics;
 
 import gg.essential.cosmetics.IngameEquippedOutfitsUpdateDispatcher;
+import io.netty.channel.Channel;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -17,7 +18,7 @@ public class MixinIngameEquippedOutfitsUpdateDispatcher {
         at = @At("RETURN"),
         remap = false
     )
-    private static void prometheus$sendPeerOutfits(Object channel, List<?> updates, CallbackInfo ci) {
+    private static void prometheus$sendPeerOutfits(Channel channel, List<?> updates, CallbackInfo ci) {
         PrometheusPeerNetworking.sendOwnOutfitUpdates(updates);
     }
 }
