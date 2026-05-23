@@ -1,0 +1,27 @@
+name: Build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Download Essential jar from Modrinth
+        run: |
+          mkdir -p lib
+          curl -sS "https://api.modrinth.com/v2/project/essential/version?loaders=%5B%22fabric%22%5D&game_versions=%5B%221.20.1%22%5D" \
+            | python3 -c "import sys,json;d=json.load(sys.stdin);print(d[0]['files'][0]['url'])" \
+            | xargs curl -L -o lib/essential.mock.jar
+          ls -lh lib/
+
+      - run: mvn clean package -DskipTests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prometheus
+          path: target/prometheus-*.jar
