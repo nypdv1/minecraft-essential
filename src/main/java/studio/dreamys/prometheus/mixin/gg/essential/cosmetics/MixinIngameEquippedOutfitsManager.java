@@ -16,6 +16,7 @@ public class MixinIngameEquippedOutfitsManager {
 
     @Inject(method = "applyUpdates(Ljava/util/List;)V", at = @At("HEAD"), remap = false)
     private void prometheus$onApplyUpdates(List<?> list, CallbackInfo ci) {
+        if (list == null || list.isEmpty()) return;
         PrometheusPeerNetworking.sendOwnOutfitUpdates(list);
         for (Object entry : list) {
             UUID uuid = extractUuid(entry);

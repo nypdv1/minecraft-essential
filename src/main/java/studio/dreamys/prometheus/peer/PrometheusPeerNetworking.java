@@ -98,19 +98,23 @@ public final class PrometheusPeerNetworking {
             OutfitUpdatesPayload payload = OutfitUpdatesPayload.decode(buf);
             buf.release();
 
-            if (payload.getUpdates().isEmpty()) return;
+            if (payload.getUpdates().isEmpty()) {
+                LOGGER.debug("Relay: empty payload, ignoring");
+                return;
+            }
 
+            LOGGER.info("Relay: received {} updates", payload.getUpdates().size());
             for (Object entry : payload.getUpdates()) {
                 UUID peerUuid = extractUuid(entry);
                 if (peerUuid != null) {
-                    LOGGER.info("Relay: received update for {}", peerUuid);
+                    LOGGER.info("Relay:   - from peer {}", peerUuid);
                     PrometheusPresence.markPeer(peerUuid);
                 }
             }
 
             applyUpdatesDirect(payload.getUpdates());
         } catch (Throwable t) {
-            LOGGER.debug("Failed to apply relay outfit", t);
+            LOGGER.error("Relay: receive failed", t);
         }
     }
 
@@ -122,13 +126,23 @@ public final class PrometheusPeerNetworking {
             Object mc = Class.forName("net.minecraft.client.Minecraft", false, cl)
                 .getMethod("getMinecraft").invoke(null);
             Object connection = mc.getClass().getMethod("getConnection").invoke(mc);
-            if (connection == null) return;
+            if (connection == null) {
+                LOGGER.warn("Relay: apply failed - no connection");
+                return;
+            }
 
             Object manager = connection.getClass()
                 .getMethod("getEssential$ingameEquippedOutfitsManager").invoke(connection);
+            if (manager == null) {
+                LOGGER.warn("Relay: apply failed - no manager");
+                return;
+            }
+            
+            LOGGER.info("Relay: applying {} updates via IngameEquippedOutfitsManager", updates.size());
             manager.getClass().getMethod("applyUpdates", java.util.List.class).invoke(manager, updates);
+            LOGGER.info("Relay: apply succeeded");
         } catch (Throwable t) {
-            LOGGER.debug("Failed to inject relay update locally", t);
+            LOGGER.error("Relay: apply failed", t);
         } finally {
             applyingFromRelay.set(false);
         }

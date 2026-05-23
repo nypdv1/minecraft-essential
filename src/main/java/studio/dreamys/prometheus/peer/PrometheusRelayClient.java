@@ -87,10 +87,11 @@ public class PrometheusRelayClient {
             return WebSocket.Listener.super.onText(webSocket, data, last);
         }
 
-        @Override
+@Override
         public CompletionStage<?> onBinary(WebSocket webSocket, ByteBuffer data, boolean last) {
             byte[] bytes = new byte[data.remaining()];
             data.get(bytes);
+            LOGGER.info("Relay: received {} bytes binary data", bytes.length);
             if (onOutfit != null) {
                 onOutfit.accept(currentServer, bytes);
             }
