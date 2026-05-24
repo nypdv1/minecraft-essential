@@ -10,6 +10,7 @@ description = "${project.description}"
 logoFile = "assets/prometheus/icon.png"
 features = { java_version = "[8,)" }
 authors = ["dxxxxy", "Cootshk"]
+entrypoint = "studio.dreamys.prometheus.PrometheusForgeMod"
 
 [[dependencies.prometheus_essential]]
 modId = "minecraft"

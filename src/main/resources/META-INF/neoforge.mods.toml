@@ -12,6 +12,7 @@ logoFile = "assets/prometheus/icon.png"
 features = { java_version = "[8,)" }
 displayURL = "https://github.com/prometheusreengineering/essential"
 authors = ["dxxxxy", "Cootshk"]
+entrypointClass = "studio.dreamys.prometheus.PrometheusForgeMod"
 
 [[mixins]]
 config = "prometheus.essential.mixins.json"
